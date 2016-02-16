@@ -9,7 +9,8 @@ namespace pmtree {
 
 	const float M_PI = 3.1415926535f;
 	const int NUM_SEGMENTS = 30;
-	const int NUM_LEVELS = 3;
+	const int NUM_LEVELS = 4;
+	const float MIN_SEGMENT_WIDTH = 0.005f;
 
 	/**
 	* Shape ratioを返却する。
@@ -71,6 +72,7 @@ namespace pmtree {
 
 		attenuationFactor = 0.0f;
 		curveV = 0.0f;
+		rotateV = 0.0f;
 	}
 
 	void TreeNode::generateRandom() {
@@ -93,6 +95,8 @@ namespace pmtree {
 				curveV = utils::uniform(-5, 5) + curveBack / NUM_SEGMENTS / 2.0f;
 			}
 		}
+
+		rotateV = 29.0f;
 	}
 
 	std::string TreeNode::to_string() {
@@ -167,58 +171,48 @@ namespace pmtree {
 		}
 
 		std::vector<Vertex> vertices;
-		if (generateGeometry(renderManager, modelMat, length, width, fixed_width, root, glm::vec3(), glm::vec3(), vertices)) underground = true;
+		if (generateGeometry(renderManager, modelMat, length, width, fixed_width, root, vertices)) underground = true;
 		renderManager->addObject("tree", "", vertices, true);
 
 		return underground;
 	}
 
-	bool PMTree2D::generateGeometry(RenderManager* renderManager, const glm::mat4& modelMat, float segment_length, float segment_width, bool fixed_width, boost::shared_ptr<TreeNode>& node, glm::vec3& p0, glm::vec3& p1, std::vector<Vertex>& vertices) {
+	bool PMTree2D::generateGeometry(RenderManager* renderManager, const glm::mat4& modelMat, float segment_length, float segment_width, bool fixed_width, boost::shared_ptr<TreeNode>& node, std::vector<Vertex>& vertices) {
 		bool underground = false;
 
 		glm::mat4 mat = modelMat;
 
+		mat = glm::rotate(mat, node->rotateV / 180.0f * M_PI, glm::vec3(0, 1, 0));
 		mat = glm::rotate(mat, node->curveV / 180.0f * M_PI, glm::vec3(0, 0, 1));
 
 		float w1 = segment_width;
 		if (!fixed_width) {
-			w1 = segment_width * (NUM_SEGMENTS - node->index) / NUM_SEGMENTS;
-		}
-		if (node->index == 0) {
-			p0 = glm::vec3(mat * glm::vec4(-w1 * 0.5f, 0, 0, 1));
-			p1 = glm::vec3(mat * glm::vec4(w1 * 0.5, 0, 0, 1));
+			w1 = (segment_width - MIN_SEGMENT_WIDTH) * (NUM_SEGMENTS - node->index) / NUM_SEGMENTS + MIN_SEGMENT_WIDTH;
 		}
 
 		float w2 = segment_width;
 		if (!fixed_width) {
-			w2 = segment_width * (NUM_SEGMENTS - node->index - 1) / NUM_SEGMENTS;
+			w2 = (segment_width - MIN_SEGMENT_WIDTH) * (NUM_SEGMENTS - node->index - 1) / NUM_SEGMENTS + MIN_SEGMENT_WIDTH;
 		}
-		glm::vec3 p2 = glm::vec3(mat * glm::vec4(w2 * 0.5, segment_length, 0, 1));
-		glm::vec3 p3 = glm::vec3(mat * glm::vec4(-w2 * 0.5, segment_length, 0, 1));
 
-		if (p2.y < 0 || p3.y < 0) underground = true;
 
-		std::vector<glm::vec3> pts(4);
-		pts[0] = p0;
-		pts[1] = p1;
-		pts[2] = p2;
-		pts[3] = p3;
-		glutils::drawPolygon(pts, glm::vec4(0, 0, 0, 1), vertices);
+		glutils::drawCylinderY(w1 * 0.5, w2 * 0.5, segment_length, glm::vec4(0.5, 0.8, 0.1, 1.0), mat, vertices);
+
 
 		mat = glm::translate(mat, glm::vec3(0, segment_length, 0));
 
 		if (node->children.size() >= 1) {
 			// extend the segment
-			generateGeometry(renderManager, mat, segment_length, segment_width, fixed_width, node->children[0], pts[3], pts[2], vertices);
+			generateGeometry(renderManager, mat, segment_length, segment_width, fixed_width, node->children[0], vertices);
 		}
 		
 		if (node->children.size() >= 2) {
 			// branching
 			if (fixed_width) {
-				generateGeometry(renderManager, mat, segment_length * node->children[1]->attenuationFactor, segment_width, fixed_width, node->children[1], glm::vec3(), glm::vec3(), vertices);
+				generateGeometry(renderManager, mat, segment_length * node->children[1]->attenuationFactor, segment_width, fixed_width, node->children[1], vertices);
 			}
 			else {
-				generateGeometry(renderManager, mat, segment_length * node->children[1]->attenuationFactor, w1 * node->children[1]->attenuationFactor, fixed_width, node->children[1], glm::vec3(), glm::vec3(), vertices);
+				generateGeometry(renderManager, mat, segment_length * node->children[1]->attenuationFactor, std::max(MIN_SEGMENT_WIDTH, w1 * node->children[1]->attenuationFactor), fixed_width, node->children[1], vertices);
 			}
 		}
 

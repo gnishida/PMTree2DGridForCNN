@@ -16,7 +16,8 @@ namespace pmtree {
 	class TreeNode {
 	public:
 		float attenuationFactor;	// 親枝に対する長さの比率
-		float curveV;
+		float curveV;				// 親枝に対するZ軸周りの回転
+		float rotateV;				// 親枝に対するY軸周りの回転
 
 		int level;
 		int index;
@@ -50,7 +51,7 @@ namespace pmtree {
 		void recover(const std::vector<std::vector<float> >& params);
 
 	private:
-		bool generateGeometry(RenderManager* renderManager, const glm::mat4& modelMat, float segment_length, float segment_width, bool fixed_width, boost::shared_ptr<TreeNode>& node, glm::vec3& p0, glm::vec3& p1, std::vector<Vertex>& vertices);
+		bool generateGeometry(RenderManager* renderManager, const glm::mat4& modelMat, float segment_length, float segment_width, bool fixed_width, boost::shared_ptr<TreeNode>& node, std::vector<Vertex>& vertices);
 	};
 
 }

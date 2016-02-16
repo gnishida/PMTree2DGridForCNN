@@ -44,7 +44,7 @@ void Camera::rotate(int mouse_x, int mouse_y) {
 	mouse_pos = glm::vec2(mouse_x, mouse_y);
 }*/
 void Camera::zoom(float delta) {
-	pos.z -= delta * 0.1f;
+	pos.z -= delta * 0.01f;
 	updateMVPMatrix();
 }
 
