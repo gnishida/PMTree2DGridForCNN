@@ -28,6 +28,7 @@ public:
 public:
 	GLWidget3D(MainWindow *parent);
 	void generateTrainingData();
+	int computePatchType(const cv::Mat& patch);
 	void generatePredictedData();
 	void render();
 	void drawScene();

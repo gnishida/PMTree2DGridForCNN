@@ -31,65 +31,102 @@ GLWidget3D::GLWidget3D(MainWindow* mainWin) : QGLWidget(QGLFormat(QGL::SampleBuf
 void GLWidget3D::generateTrainingData() {
 	srand(2);
 
-	QString resultDir = "C:\\Anaconda\\caffe\\data\\pmtree2dlocal\\pmtree2dlocal\\";
+	QString baseResultDir = "C:\\Anaconda\\caffe\\data\\pmtree2dgrid\\pmtree2dgrid\\";
 
-	if (QDir(resultDir).exists()) {
-		QDir(resultDir).removeRecursively();
+	if (QDir(baseResultDir).exists()) {
+		QDir(baseResultDir).removeRecursively();
 	}
-	QDir().mkpath(resultDir);
+	QDir().mkpath(baseResultDir);
 
-	QFile file("C:\\Anaconda\\caffe\\data\\pmtree2dlocal\\pmtree2dlocal\\parameters.txt");
-	if (!file.open(QIODevice::WriteOnly)) {
-		QMessageBox::warning(this, "Warning", "Output directory is not accessible.");
-
-		return;
-	}
-
-	QTextStream out(&file);
-
-	int count = 0;
-	for (int n = 0; n < 10; ++n) {
+	std::vector<int> count(4, 0);
+	for (int n = 0; n < 300; ++n) {
 		// 枝が地面にぶつからないよう、ランダムに生成
 		while (true) {
 			renderManager.removeObjects();
 			tree.generateRandom();
-			if (!tree.generateGeometry(&renderManager, true)) break;
+			if (!tree.generateGeometry(&renderManager, false)) break;
 		}
 
-		// render the tree
+		// render the tree with color
+		renderManager.renderingMode = RenderManager::RENDERING_MODE_BASIC;
 		render();
 
+		// cv::Mat形式に変換
 		QImage img = grabFrameBuffer();
-		cv::Mat sourceImage(img.height(), img.width(), CV_8UC4, img.bits(), img.bytesPerLine());
-		cv::Mat grayImage;
-		cv::cvtColor(sourceImage, grayImage, CV_RGB2GRAY);
+		cv::Mat imageMat = cv::Mat(img.height(), img.width(), CV_8UC4, img.bits(), img.bytesPerLine()).clone();
 
-		// 白黒画像に変換
-		cv::threshold(grayImage, grayImage, 100, 255, CV_THRESH_BINARY);
+		// 2560x2560に変換
+		cv::resize(imageMat, imageMat, cv::Size(2560, 2560));
 
-		// derivation木の各ノードについて、学習データを作成する
-		std::vector<cv::Mat> localImages;
-		std::vector<std::vector<float> > parameters;
-		tree.generateTrainingData(grayImage, &camera, width(), height(), localImages, parameters);
+		// render the tree with line rendering
+		renderManager.renderingMode = RenderManager::RENDERING_MODE_LINE;
+		render();
 
-		// 画像、パラメータをファイルに保存
-		for (int i = 0; i < localImages.size(); ++i) {
-			QString filename = resultDir + QString("image_%1.png").arg(count++, 6, 10, QChar('0'));
-			cv::imwrite(filename.toUtf8().constData(), localImages[i]);
+		// cv::Mat形式に変換
+		QImage img2 = grabFrameBuffer();
+		cv::Mat imageMat2 = cv::Mat(img2.height(), img2.width(), CV_8UC4, img2.bits(), img2.bytesPerLine()).clone();
 
-			for (int k = 0; k < parameters[i].size(); ++k) {
-				if (k > 0) {
-					out << ",";
+		// 2560x2560に変換
+		cv::resize(imageMat2, imageMat2, cv::Size(2560, 2560));
+
+		// 10x10に分割
+		int patch_width = imageMat.cols / 10;
+		int patch_height = imageMat.rows / 10;
+		int stride = patch_width / 3;
+		for (int r = 0; r < imageMat.rows - patch_height; r += stride) {
+			for (int c = 0; c < imageMat.cols - patch_width; c += stride) {
+				cv::Mat patch(imageMat, cv::Rect(c, r, patch_width, patch_height));
+				cv::Mat patch2(imageMat2, cv::Rect(c, r, patch_width, patch_height));
+
+				// patchのタイプを計算
+				int type = computePatchType(patch);
+
+				// make directory
+				QString resultDir = QString(baseResultDir + "pmtree2dgrid_%1\\").arg(type, 2, 10, QChar('0'));
+				if (!QDir(resultDir).exists()) {
+					QDir().mkdir(resultDir);
 				}
-				out << parameters[i][k];
-			}
-			out << "\n";
-		}
 
+				// 画像をファイルに保存
+				QString filename = resultDir + QString("image_%1.png").arg(count[type]++, 6, 10, QChar('0'));
+				cv::imwrite(filename.toUtf8().constData(), patch2);
+			}
+		}
+	}
+}
+
+int GLWidget3D::computePatchType(const cv::Mat& patch) {
+	int trunk = 0;
+	int branch = 0;
+	int leaf = 0;
+
+	for (int r = 0; r < patch.rows; ++r) {
+		for (int c = 0; c < patch.cols; ++c) {
+			int blue = patch.at<cv::Vec3b>(r, c)[0];
+			int green = patch.at<cv::Vec3b>(r, c)[1];
+			int red = patch.at<cv::Vec3b>(r, c)[2];
+
+			if (blue > 240 && green > 240 && red > 240) { // background
+				// do nothing
+			}
+			else if (red > green && red > blue) { // trunk
+				trunk++;
+			}
+			else if (green > red && green > blue) { // branch
+				branch++;
+			}
+			else if (blue > green && blue > red) { // leaf
+				leaf++;
+			}
+		}
 	}
 
-	out.flush();
-	file.close();
+	int threshold = patch.rows * patch.cols * 0.01;
+
+	if (trunk + branch + leaf < threshold) return 0; // background
+	else if (trunk > branch && trunk > leaf) return 1; // trunk
+	else if (branch > leaf) return 2; // branch
+	else return 3; // leaf
 }
 
 void GLWidget3D::generatePredictedData() {
@@ -187,6 +224,131 @@ void GLWidget3D::render() {
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
 	drawScene();
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// PASS 2: Create AO
+	if (renderManager.renderingMode == RenderManager::RENDERING_MODE_SSAO) {
+		glUseProgram(renderManager.programs["ssao"]);
+		glBindFramebuffer(GL_FRAMEBUFFER, renderManager.fragDataFB_AO);
+
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderManager.fragAOTex, 0);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, renderManager.fragDepthTex_AO, 0);
+		GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+		glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
+
+		glClearColor(1, 1, 1, 1);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		// Always check that our framebuffer is ok
+		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+			printf("++ERROR: GL_FRAMEBUFFER_COMPLETE false\n");
+			exit(0);
+		}
+
+		glDisable(GL_DEPTH_TEST);
+		glDepthFunc(GL_ALWAYS);
+
+		glUniform2f(glGetUniformLocation(renderManager.programs["ssao"], "pixelSize"), 2.0f / this->width(), 2.0f / this->height());
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["ssao"], "tex0"), 1);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, renderManager.fragDataTex[0]);
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["ssao"], "tex1"), 2);
+		glActiveTexture(GL_TEXTURE2);
+		glEnable(GL_TEXTURE_2D);
+		glBindTexture(GL_TEXTURE_2D, renderManager.fragDataTex[1]);
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["ssao"], "tex2"), 3);
+		glActiveTexture(GL_TEXTURE3);
+		glEnable(GL_TEXTURE_2D);
+		glBindTexture(GL_TEXTURE_2D, renderManager.fragDataTex[2]);
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["ssao"], "depthTex"), 8);
+		glActiveTexture(GL_TEXTURE8);
+		glEnable(GL_TEXTURE_2D);
+		glBindTexture(GL_TEXTURE_2D, renderManager.fragDepthTex);
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["ssao"], "noiseTex"), 7);
+		glActiveTexture(GL_TEXTURE7);
+		glEnable(GL_TEXTURE_2D);
+		glBindTexture(GL_TEXTURE_2D, renderManager.fragNoiseTex);
+
+		{
+			glUniformMatrix4fv(glGetUniformLocation(renderManager.programs["ssao"], "mvpMatrix"), 1, false, &camera.mvpMatrix[0][0]);
+			glUniformMatrix4fv(glGetUniformLocation(renderManager.programs["ssao"], "pMatrix"), 1, false, &camera.pMatrix[0][0]);
+		}
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["ssao"], "uKernelSize"), renderManager.uKernelSize);
+		glUniform3fv(glGetUniformLocation(renderManager.programs["ssao"], "uKernelOffsets"), renderManager.uKernelOffsets.size(), (const GLfloat*)renderManager.uKernelOffsets.data());
+
+		glUniform1f(glGetUniformLocation(renderManager.programs["ssao"], "uPower"), renderManager.uPower);
+		glUniform1f(glGetUniformLocation(renderManager.programs["ssao"], "uRadius"), renderManager.uRadius);
+
+		glBindVertexArray(renderManager.secondPassVAO);
+
+		glDrawArrays(GL_QUADS, 0, 4);
+		glBindVertexArray(0);
+		glDepthFunc(GL_LEQUAL);
+	}
+	else if (renderManager.renderingMode == RenderManager::RENDERING_MODE_LINE || renderManager.renderingMode == RenderManager::RENDERING_MODE_HATCHING) {
+		glUseProgram(renderManager.programs["line"]);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glClearColor(1, 1, 1, 1);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		glDisable(GL_DEPTH_TEST);
+		glDepthFunc(GL_ALWAYS);
+
+		glUniform2f(glGetUniformLocation(renderManager.programs["line"], "pixelSize"), 1.0f / this->width(), 1.0f / this->height());
+		glUniformMatrix4fv(glGetUniformLocation(renderManager.programs["line"], "pMatrix"), 1, false, &camera.pMatrix[0][0]);
+		if (renderManager.renderingMode == RenderManager::RENDERING_MODE_LINE) {
+			glUniform1i(glGetUniformLocation(renderManager.programs["line"], "useHatching"), 0);
+		}
+		else {
+			glUniform1i(glGetUniformLocation(renderManager.programs["line"], "useHatching"), 1);
+		}
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["line"], "tex0"), 1);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, renderManager.fragDataTex[0]);
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["line"], "tex1"), 2);
+		glActiveTexture(GL_TEXTURE2);
+		glEnable(GL_TEXTURE_2D);
+		glBindTexture(GL_TEXTURE_2D, renderManager.fragDataTex[1]);
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["line"], "tex2"), 3);
+		glActiveTexture(GL_TEXTURE3);
+		glEnable(GL_TEXTURE_2D);
+		glBindTexture(GL_TEXTURE_2D, renderManager.fragDataTex[2]);
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["line"], "tex3"), 4);
+		glActiveTexture(GL_TEXTURE4);
+		glEnable(GL_TEXTURE_2D);
+		glBindTexture(GL_TEXTURE_2D, renderManager.fragDataTex[3]);
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["line"], "depthTex"), 8);
+		glActiveTexture(GL_TEXTURE8);
+		glEnable(GL_TEXTURE_2D);
+		glBindTexture(GL_TEXTURE_2D, renderManager.fragDepthTex);
+
+		glUniform1i(glGetUniformLocation(renderManager.programs["line"], "hatchingTexture"), 5);
+		glActiveTexture(GL_TEXTURE5);
+		glBindTexture(GL_TEXTURE_3D, renderManager.hatchingTextures);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+		glBindVertexArray(renderManager.secondPassVAO);
+
+		glDrawArrays(GL_QUADS, 0, 4);
+		glBindVertexArray(0);
+		glDepthFunc(GL_LEQUAL);
+	}
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Blur
@@ -361,7 +523,7 @@ void GLWidget3D::initializeGL() {
 	camera.xrot = 0.0f;
 	camera.yrot = 0.0f;
 	camera.zrot = 0.0f;
-	camera.pos = glm::vec3(0, 5, 15.0f);
+	camera.pos = glm::vec3(0, 6, 15.0f);
 }
 
 /**

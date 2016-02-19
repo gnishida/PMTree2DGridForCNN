@@ -9,7 +9,7 @@ namespace pmtree {
 
 	const float M_PI = 3.1415926535f;
 	const int NUM_SEGMENTS = 30;
-	const int NUM_LEVELS = 4;
+	const int NUM_LEVELS = 3;
 	const float MIN_SEGMENT_WIDTH = 0.005f;
 
 	/**
@@ -96,7 +96,7 @@ namespace pmtree {
 			}
 		}
 
-		rotateV = 29.0f;
+		rotateV = 59.0f;
 	}
 
 	std::string TreeNode::to_string() {
@@ -137,9 +137,9 @@ namespace pmtree {
 				node->children.push_back(child);
 				queue.push_back(child);
 
-				if (node->level < NUM_LEVELS - 1) {
+				if (node->level < NUM_LEVELS) {
 					if (node->level > 0 || node->index + 1 > NUM_SEGMENTS * node->baseFactor) {
-						if (utils::uniform(0, 1) > 0.5f) {
+						if (utils::uniform(0, 1) > 0.4f) {
 							// branching
 							float attenuationFactor;
 							if (node->level == 0) {
@@ -171,13 +171,13 @@ namespace pmtree {
 		}
 
 		std::vector<Vertex> vertices;
-		if (generateGeometry(renderManager, modelMat, length, width, fixed_width, root, vertices)) underground = true;
+		if (generateSegmentGeometry(renderManager, modelMat, length, width, fixed_width, root, vertices)) underground = true;
 		renderManager->addObject("tree", "", vertices, true);
 
 		return underground;
 	}
 
-	bool PMTree2D::generateGeometry(RenderManager* renderManager, const glm::mat4& modelMat, float segment_length, float segment_width, bool fixed_width, boost::shared_ptr<TreeNode>& node, std::vector<Vertex>& vertices) {
+	bool PMTree2D::generateSegmentGeometry(RenderManager* renderManager, const glm::mat4& modelMat, float segment_length, float segment_width, bool fixed_width, boost::shared_ptr<TreeNode>& node, std::vector<Vertex>& vertices) {
 		bool underground = false;
 
 		glm::mat4 mat = modelMat;
@@ -195,28 +195,47 @@ namespace pmtree {
 			w2 = (segment_width - MIN_SEGMENT_WIDTH) * (NUM_SEGMENTS - node->index - 1) / NUM_SEGMENTS + MIN_SEGMENT_WIDTH;
 		}
 
-
-		glutils::drawCylinderY(w1 * 0.5, w2 * 0.5, segment_length, glm::vec4(0.5, 0.8, 0.1, 1.0), mat, vertices);
-
-
+		glm::vec4 color(1, 0, 0, 1.0);
+		if (node->level > 0) {
+			color = glm::vec4(0, 1, 0, 1);
+		}
+		glutils::drawCylinderY(w1 * 0.5, w2 * 0.5, segment_length, color, mat, vertices);
+		
 		mat = glm::translate(mat, glm::vec3(0, segment_length, 0));
 
 		if (node->children.size() >= 1) {
 			// extend the segment
-			generateGeometry(renderManager, mat, segment_length, segment_width, fixed_width, node->children[0], vertices);
+			generateSegmentGeometry(renderManager, mat, segment_length, segment_width, fixed_width, node->children[0], vertices);
 		}
 		
 		if (node->children.size() >= 2) {
-			// branching
-			if (fixed_width) {
-				generateGeometry(renderManager, mat, segment_length * node->children[1]->attenuationFactor, segment_width, fixed_width, node->children[1], vertices);
+			if (node->level < NUM_LEVELS - 1) {
+				// branching
+				if (fixed_width) {
+					generateSegmentGeometry(renderManager, mat, segment_length * node->children[1]->attenuationFactor, segment_width, fixed_width, node->children[1], vertices);
+				}
+				else {
+					generateSegmentGeometry(renderManager, mat, segment_length * node->children[1]->attenuationFactor, std::max(MIN_SEGMENT_WIDTH, w1 * node->children[1]->attenuationFactor), fixed_width, node->children[1], vertices);
+				}
 			}
 			else {
-				generateGeometry(renderManager, mat, segment_length * node->children[1]->attenuationFactor, std::max(MIN_SEGMENT_WIDTH, w1 * node->children[1]->attenuationFactor), fixed_width, node->children[1], vertices);
+				generateLeafGeometry(renderManager, mat, segment_length * node->children[1]->attenuationFactor, node->children[1], vertices);
 			}
 		}
 
 		return underground;
+	}
+
+	void PMTree2D::generateLeafGeometry(RenderManager* renderManager, const glm::mat4& modelMat, float segment_length, boost::shared_ptr<TreeNode>& node, std::vector<Vertex>& vertices) {
+		glm::mat4 mat = modelMat;
+
+		mat = glm::rotate(mat, node->rotateV / 180.0f * M_PI, glm::vec3(0, 1, 0));
+		mat = glm::rotate(mat, 75.0f / 180.0f * M_PI, glm::vec3(0, 0, 1));
+
+		float leaf_length = 0.1f;
+		mat = glm::translate(mat, glm::vec3(0, leaf_length * 0.5, 0));
+
+		glutils::drawCircle(leaf_length * 0.25, leaf_length * 0.5, glm::vec4(0, 0, 1, 1.0), mat, vertices);
 	}
 
 	void PMTree2D::generateTrainingData(const cv::Mat& image, Camera* camera, int screenWidth, int screenHeight, std::vector<cv::Mat>& localImages, std::vector<std::vector<float> >& parameters) {

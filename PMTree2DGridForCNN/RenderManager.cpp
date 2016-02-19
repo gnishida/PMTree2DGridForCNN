@@ -84,6 +84,7 @@ void RenderManager::init(const std::string& vertex_file, const std::string& geom
 	this->useShadow = useShadow;
 	this->softShadow = true;
 	renderingMode = RENDERING_MODE_BASIC;
+	renderingMode = RENDERING_MODE_LINE;
 
 	// init glew
 	GLenum err = glewInit();

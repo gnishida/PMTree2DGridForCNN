@@ -37,11 +37,11 @@ void main(){
 	vec3 originPos = texture(tex2, coord).rgb;
 
 	/////// DEBUG //////
-	/*
+	
 	//outputF = vec4(orig_depth / 300, orig_depth / 300, orig_depth / 300, 1);
-	outputF = vec4(originPos.x / 10, originPos.y / 10, originPos.z / 10, 1);
-	return;
-	*/
+	//outputF = vec4(originPos.x / 10, originPos.y / 10, originPos.z / 10, 1);
+	//return;
+	
 	/////// DEBUG //////
 
 

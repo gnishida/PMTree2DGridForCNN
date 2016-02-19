@@ -33,6 +33,9 @@
       <Extensions>cpp;moc</Extensions>
       <SourceControlFiles>False</SourceControlFiles>
     </Filter>
+    <Filter Include="Source Files\shaders">
+      <UniqueIdentifier>{50a3ab57-6d9a-486d-84fd-2e2a6fddeb5a}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -117,5 +120,37 @@
     <ClInclude Include="Utils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\lc_frag_blur.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="shaders\lc_frag_line.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="shaders\lc_frag_pass1.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="shaders\lc_frag_shadow.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="shaders\lc_frag_ssao.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="shaders\lc_vert_blur.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="shaders\lc_vert_line.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="shaders\lc_vert_pass1.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="shaders\lc_vert_shadow.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="shaders\lc_vert_ssao.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
   </ItemGroup>
 </Project>
